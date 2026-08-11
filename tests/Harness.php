@@ -92,15 +92,36 @@ function installCoreLaunchImage(string $root, string $tag): void
 
 /**
  * Stand in for the core package's own launch screen, which is where a restore
- * reads from — not from a stash, so a core upgrade is never undone.
+ * reads from, so a core upgrade is never undone.
  */
 function installCoreLaunchScreen(string $root): void
 {
-    $source = $root.'/vendor/nativephp/mobile/resources/xcode/NativePHP';
+    $source = coreTemplatePath($root);
 
     is_dir($source) || mkdir($source, 0777, true);
     file_put_contents($source.'/LaunchScreen.storyboard', '<document>core launch screen</document>');
     file_put_contents($source.'/SplashView.swift', '// core splash view');
+}
+
+/**
+ * Stand in for the default launch image set the core package ships, which is
+ * what an app with no splash artwork of its own is installed with.
+ */
+function installCoreLaunchImageTemplate(string $root, string $tag = 'core default'): void
+{
+    $source = coreTemplatePath($root).'/Assets.xcassets/LaunchImage.imageset';
+
+    is_dir($source) || mkdir($source, 0777, true);
+    file_put_contents($source.'/splash.png', $tag);
+    file_put_contents($source.'/Contents.json', json_encode([
+        'images' => [['filename' => 'splash.png', 'idiom' => 'universal']],
+        'info' => ['author' => 'xcode', 'version' => 1],
+    ]));
+}
+
+function coreTemplatePath(string $root): string
+{
+    return $root.'/vendor/nativephp/mobile/resources/xcode/NativePHP';
 }
 
 function buildFile(string $root, string $file): string
@@ -158,6 +179,19 @@ function prepare(string $platform, string $path, array $config, string $basePath
 function projectFile(string $path, string $file): string
 {
     return file_get_contents($path.'/app/src/main/'.$file);
+}
+
+/**
+ * The splash style resource, which is the plugin's own file rather than an
+ * edit to core's themes.xml.
+ *
+ * @return string Empty when the mode did not write one.
+ */
+function splashTheme(string $path, string $directory = 'values'): string
+{
+    $file = $path."/app/src/main/res/{$directory}/enhanced_splash.xml";
+
+    return is_file($file) ? file_get_contents($file) : '';
 }
 
 function assetPath(string $root, string $name): string

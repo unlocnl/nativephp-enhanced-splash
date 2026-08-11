@@ -174,14 +174,17 @@ describe('losing the app icon', function () {
 
 /**
  * Vector mode substitutes an SVG for the bitmap launch image set core installs,
- * so it has to be able to hand that set back. Core reinstalls the set from
- * public/splash*.png on every build, ahead of this hook — which makes a stash
- * from an earlier build the wrong thing to put back.
+ * so it has to be able to hand that set back. Core rewrites the set from
+ * public/splash*.png on every build, ahead of this hook, and ships a default
+ * set for apps with no artwork of their own — between them they are the only
+ * two things the set is ever meant to hold, so nothing has to be kept aside.
  */
 describe('handing the launch image back', function () {
     beforeEach(function () {
         $this->project = iosProject();
         $this->vectorMode = ['mode' => 'image'] + $this->iconMode;
+
+        installCoreLaunchImageTemplate($this->project);
 
         file_put_contents($this->project.'/public/splash.svg', '<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>');
     });
@@ -195,58 +198,63 @@ describe('handing the launch image back', function () {
             ->and(assetPath($this->project, 'LaunchImage.imageset').'/splash.png')->not->toBeFile();
     });
 
-    it('keeps the splash core installed for this build, not the stashed one', function () {
+    it('keeps the splash core installed for this build', function () {
         installCoreLaunchImage($this->project, 'first build');
         prepareIos($this->project, $this->vectorMode);
 
-        // The app swaps its splash for a bitmap: core reinstalls the set, and
-        // the vector this plugin wrote is gone before the hook runs again.
+        // The app swaps its splash for a bitmap: core rewrites the set, and the
+        // vector this plugin wrote is no longer what the set names.
         installCoreLaunchImage($this->project, 'second build');
         unlink($this->project.'/public/splash.svg');
 
         prepareIos($this->project, $this->vectorMode);
 
-        expect(launchImage($this->project, 'splash.png'))->toBe('second build');
+        expect(launchImage($this->project, 'splash.png'))->toBe('second build')
+            ->and(assetPath($this->project, 'LaunchImage.imageset').'/splash.svg')->not->toBeFile();
     });
 
-    it('puts back the newest set core installed, not the first one it ever saw', function () {
-        installCoreLaunchImage($this->project, 'first build');
+    /**
+     * With no artwork of its own the app has no set core would write, so what
+     * it is owed is the one the core package ships.
+     */
+    it('puts the installed default back when core writes nothing', function () {
         prepareIos($this->project, $this->vectorMode);
 
-        installCoreLaunchImage($this->project, 'second build');
-        prepareIos($this->project, $this->vectorMode);
+        expect(launchImage($this->project, 'Contents.json'))->toContain('splash.svg');
 
-        // Core installs nothing this build, so last build's vector set reaches
-        // the hook and the stash is the only copy of core's own left.
-        unlink($this->project.'/public/splash.svg');
-        prepareIos($this->project, $this->vectorMode);
-
-        expect(launchImage($this->project, 'splash.png'))->toBe('second build');
-    });
-
-    it('puts the stash back when core installed nothing this build', function () {
-        installCoreLaunchImage($this->project, 'first build');
-        prepareIos($this->project, $this->vectorMode);
-
-        // No valid public/splash*.png, so core returns early and leaves last
-        // build's vector set in place. Only then is the stash the newest copy.
         unlink($this->project.'/public/splash.svg');
 
         prepareIos($this->project, $this->vectorMode);
 
-        expect(launchImage($this->project, 'splash.png'))->toBe('first build')
+        expect(launchImage($this->project, 'splash.png'))->toBe('core default')
             ->and(launchImage($this->project, 'Contents.json'))->not->toContain('splash.svg')
             ->and(assetPath($this->project, 'LaunchImage.imageset').'/splash.svg')->not->toBeFile();
     });
 
-    it('drops the stash once the set is core\'s again', function () {
-        installCoreLaunchImage($this->project, 'first build');
+    /**
+     * A core upgrade that changes the default set has to reach the app, which
+     * it only does while the core package is the one place a restore reads.
+     */
+    it('follows the core package rather than a copy of an earlier build', function () {
         prepareIos($this->project, $this->vectorMode);
 
-        installCoreLaunchImage($this->project, 'second build');
+        installCoreLaunchImageTemplate($this->project, 'upgraded default');
         unlink($this->project.'/public/splash.svg');
+
         prepareIos($this->project, $this->vectorMode);
 
-        expect(iosBuildPath($this->project).'/.enhanced-splash')->not->toBeDirectory();
+        expect(launchImage($this->project, 'splash.png'))->toBe('upgraded default')
+            ->and(iosBuildPath($this->project).'/.enhanced-splash')->not->toBeDirectory();
+    });
+
+    it('leaves the set alone when core is not there to restore from', function () {
+        prepareIos($this->project, $this->vectorMode);
+
+        exec('rm -rf '.escapeshellarg($this->project.'/vendor'));
+        unlink($this->project.'/public/splash.svg');
+
+        prepareIos($this->project, $this->vectorMode);
+
+        expect(launchImage($this->project, 'Contents.json'))->toContain('splash.svg');
     });
 });

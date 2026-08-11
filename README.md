@@ -36,6 +36,12 @@ Then rebuild — native code only compiles in at build time:
 php artisan native:run ios      # or: android
 ```
 
+### Alongside other splash plugins
+
+Only run one. This plugin edits `MainActivity.kt` by exact-string match, as every splash plugin for NativePHP does — including
+[s2br/nativephp-mobile-splashscreen](https://github.com/s2br/nativephp-mobile-splashscreen), which anchors on the same two lines. Hook order between plugins is undefined, so with both registered the second to run finds source the first
+has already rewritten. This plugin then reports `MainActivity.kt does not match the expected source` and leaves the splash untouched rather than applying half of it — but the other plugin makes no such promise.
+
 ## Configuration
 
 Set the `.env` keys, or publish the config to edit it directly:

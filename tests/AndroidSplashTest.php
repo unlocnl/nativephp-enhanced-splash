@@ -37,10 +37,10 @@ describe('image mode', function () {
     it('colors the system splash and the app window', function () {
         prepareAndroid($this->project, $this->image);
 
-        expect(projectFile($this->project, 'res/values/themes.xml'))
+        expect(splashTheme($this->project))
             ->toContain('<item name="android:windowSplashScreenBackground">#FF0F172A</item>')
             ->toContain('<item name="android:windowBackground">#FF0F172A</item>')
-            ->and(projectFile($this->project, 'res/values-night/themes.xml'))
+            ->and(splashTheme($this->project, 'values-night'))
             ->toContain('<item name="android:windowSplashScreenBackground">#FF020617</item>');
     });
 
@@ -56,9 +56,9 @@ describe('image mode', function () {
             'background_dark' => '#020617FF',
         ]);
 
-        expect(projectFile($this->project, 'res/values/themes.xml'))
+        expect(splashTheme($this->project))
             ->toContain('<item name="android:windowSplashScreenBackground">#800F172A</item>')
-            ->and(projectFile($this->project, 'res/values-night/themes.xml'))
+            ->and(splashTheme($this->project, 'values-night'))
             ->toContain('<item name="android:windowSplashScreenBackground">#FF020617</item>')
             ->and(projectFile($this->project, 'java/com/nativephp/mobile/ui/MainActivity.kt'))
             ->toContain('Color(0xFF020617) else Color(0x800F172A)');
@@ -78,13 +78,34 @@ describe('image mode', function () {
     });
 
     /**
+     * A plugin may inject an activity that names the app theme explicitly, and
+     * that activity is not the one being themed.
+     */
+    it('themes the application without following the theme onto other elements', function () {
+        $manifest = $this->project.'/app/src/main/AndroidManifest.xml';
+
+        file_put_contents($manifest, str_replace(
+            '</application>',
+            "    <activity android:name=\".ui.OtherActivity\" android:theme=\"@style/Theme.AndroidPHP\" />\n    </application>",
+            file_get_contents($manifest)
+        ));
+
+        prepareAndroid($this->project, $this->image);
+
+        expect(projectFile($this->project, 'AndroidManifest.xml'))
+            ->toContain('android:name=".ui.OtherActivity" android:theme="@style/Theme.AndroidPHP" />')
+            ->and(substr_count(projectFile($this->project, 'AndroidManifest.xml'), 'Theme.AndroidPHP.Splash'))
+            ->toBe(1);
+    });
+
+    /**
      * Without a postSplashScreenTheme hand-off, this theme stays the app's own,
      * so it may not inherit androidx's Theme.SplashScreen.
      */
     it('extends the app theme rather than the androidx splash theme', function () {
         prepareAndroid($this->project, $this->image);
 
-        expect(projectFile($this->project, 'res/values/themes.xml'))
+        expect(splashTheme($this->project))
             ->toContain('<style name="Theme.AndroidPHP.Splash" parent="Theme.AndroidPHP">')
             ->not->toContain('postSplashScreenTheme');
     });
@@ -140,10 +161,29 @@ describe('icon mode', function () {
     it('hands the window off to the app theme once released', function () {
         prepareAndroid($this->project, $this->iconMode);
 
-        expect(projectFile($this->project, 'res/values/themes.xml'))
+        expect(splashTheme($this->project))
             ->toContain('<style name="Theme.AndroidPHP.Splash" parent="Theme.SplashScreen">')
             ->toContain('<item name="windowSplashScreenBackground">#FF0F172A</item>')
             ->toContain('<item name="postSplashScreenTheme">@style/Theme.AndroidPHP</item>');
+    });
+});
+
+/**
+ * Android merges every file under a values directory, so the style is declared
+ * in one of our own. Core's themes.xml is then never a patch site at all, and
+ * the mode is removed by removing a file.
+ */
+describe('core resources', function () {
+    it('declares the style without touching core themes', function () {
+        $before = projectFile($this->project, 'res/values/themes.xml');
+        $beforeNight = projectFile($this->project, 'res/values-night/themes.xml');
+
+        prepareAndroid($this->project, $this->image);
+
+        expect(projectFile($this->project, 'res/values/themes.xml'))->toBe($before)
+            ->and(projectFile($this->project, 'res/values-night/themes.xml'))->toBe($beforeNight)
+            ->and(splashTheme($this->project))->toContain('<?xml version="1.0" encoding="utf-8"?>')
+            ->and(splashTheme($this->project, 'values-night'))->toContain('Theme.AndroidPHP.Splash');
     });
 });
 
@@ -168,8 +208,30 @@ describe('anchors core has moved', function () {
         $output = prepareAndroid($this->project, $this->iconMode);
 
         expect($output)->toContain('does not match the expected source')
-            ->and(projectFile($this->project, 'res/values/themes.xml'))
-            ->not->toContain('Theme.AndroidPHP.Splash')
+            ->and(splashTheme($this->project))->toBe('')
+            ->and(projectFile($this->project, 'AndroidManifest.xml'))
+            ->not->toContain('Theme.AndroidPHP.Splash');
+    });
+
+    /**
+     * A core release that moves an anchor lands on an app that already built
+     * with this plugin, so the previous build's style and the manifest entry
+     * naming it have to go together — a manifest naming a style nothing
+     * defines fails resource linking.
+     */
+    it('takes the style and the theme that names it back together', function () {
+        prepareAndroid($this->project, $this->iconMode);
+
+        file_put_contents($this->activity, str_replace(
+            'visible = false, // enhanced-splash',
+            'visible = someOtherState,',
+            file_get_contents($this->activity)
+        ));
+
+        prepareAndroid($this->project, $this->iconMode);
+
+        expect(splashTheme($this->project))->toBe('')
+            ->and(splashTheme($this->project, 'values-night'))->toBe('')
             ->and(projectFile($this->project, 'AndroidManifest.xml'))
             ->not->toContain('Theme.AndroidPHP.Splash');
     });
@@ -184,19 +246,18 @@ describe('anchors core has moved', function () {
         $output = prepareAndroid($this->project, $this->image);
 
         expect($output)->toContain('does not match the expected source')
-            ->and(projectFile($this->project, 'res/values/themes.xml'))
-            ->not->toContain('enhanced-splash:begin');
+            ->and(splashTheme($this->project))->toBe('');
     });
 });
 
 describe('rebuilds', function () {
     it('is idempotent', function () {
         prepareAndroid($this->project, $this->image);
-        $first = projectFile($this->project, 'res/values/themes.xml');
+        $first = splashTheme($this->project);
 
         prepareAndroid($this->project, $this->image);
 
-        expect(projectFile($this->project, 'res/values/themes.xml'))->toBe($first)
+        expect(splashTheme($this->project))->toBe($first)
             ->and(substr_count(projectFile($this->project, 'java/com/nativephp/mobile/ui/MainActivity.kt'), '// enhanced-splash'))
             ->toBe(1);
     });
@@ -221,7 +282,7 @@ describe('rebuilds', function () {
         expect(projectFile($this->project, 'java/com/nativephp/mobile/ui/MainActivity.kt'))
             ->not->toContain('installSplashScreen')
             ->toContain('visible = showSplash,')
-            ->and(projectFile($this->project, 'res/values/themes.xml'))
+            ->and(splashTheme($this->project))
             ->not->toContain('Theme.SplashScreen')
             ->and(manifestActivity($this->project))->not->toContain('android:theme');
 

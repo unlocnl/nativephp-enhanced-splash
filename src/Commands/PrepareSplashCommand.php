@@ -9,9 +9,8 @@ use Native\Mobile\Plugins\Commands\NativePluginHookCommand;
  * Runs during pre_compile, after the core build has written its own splash
  * assets, theme and configuration — so anything written here wins.
  *
- * Switching a mode back restores core's own version byte for byte: from the
- * core package for files it installs verbatim, and from a stash for the image
- * set, whose contents depend on the app's own splash images.
+ * Switching a mode back restores core's own version byte for byte, always from
+ * the core package itself, so a core upgrade is never undone.
  */
 class PrepareSplashCommand extends NativePluginHookCommand
 {
@@ -81,12 +80,16 @@ class PrepareSplashCommand extends NativePluginHookCommand
         if (! $this->patchMainActivity($icon)) {
             $this->warn('enhanced-splash: MainActivity.kt does not match the expected source, leaving the splash alone.');
 
+            // The manifest goes back before the style it names is removed, or
+            // resource linking fails on a style that is no longer defined.
+            $this->unpatchManifest();
+            $this->removeThemes();
+
             return;
         }
 
-        if ($this->patchThemes($icon)) {
-            $this->patchManifest($icon);
-        }
+        $this->writeThemes($icon);
+        $this->patchManifest($icon);
 
         $this->components->twoColumnDetail(
             '<fg=blue>System splash</>',
@@ -155,63 +158,64 @@ class PrepareSplashCommand extends NativePluginHookCommand
     }
 
     /**
-     * @return bool Whether the splash style exists for the manifest to name.
+     * The splash style is a resource file of our own rather than an edit to
+     * core's themes.xml: Android merges every file under a values directory, so
+     * a style only has to be declared, never injected. Removing it is removing
+     * a file, which is why no mode leaves a trace in core's own resources.
      */
-    private function patchThemes(bool $icon): bool
+    private function writeThemes(bool $icon): void
     {
         $backgrounds = [
             'values' => config('enhanced-splash.android.background'),
             'values-night' => config('enhanced-splash.android.background_dark'),
         ];
 
-        $written = false;
-
         foreach ($backgrounds as $directory => $background) {
-            $path = $this->buildPath()."/app/src/main/res/{$directory}/themes.xml";
-
-            if (! File::exists($path)) {
-                continue;
-            }
-
-            $content = preg_replace(
-                '/\n?[ \t]*<!-- enhanced-splash:begin -->.*?<!-- enhanced-splash:end -->/s',
-                '',
-                File::get($path)
-            );
-
             $color = $this->androidColor((string) $background);
 
-            $style = $icon
-                ? <<<XML
-                    <style name="Theme.AndroidPHP.Splash" parent="Theme.SplashScreen">
-                            <item name="windowSplashScreenBackground">{$color}</item>
-                            <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
-                            <item name="postSplashScreenTheme">@style/Theme.AndroidPHP</item>
-                        </style>
-                    XML
-                // No postSplashScreenTheme: nothing calls installSplashScreen()
-                // here, so this theme has to stay usable as the app's own. That
-                // also means the platform attribute, not androidx's compat one.
-                : <<<XML
-                    <style name="Theme.AndroidPHP.Splash" parent="Theme.AndroidPHP">
-                            <item name="android:windowSplashScreenBackground">{$color}</item>
-                            <item name="android:windowBackground">{$color}</item>
-                        </style>
-                    XML;
+            $items = $icon ? [
+                '<item name="windowSplashScreenBackground">'.$color.'</item>',
+                '<item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>',
+                '<item name="postSplashScreenTheme">@style/Theme.AndroidPHP</item>',
+            ] : [
+                // The platform attributes, not androidx's compat ones: nothing
+                // calls installSplashScreen() in this mode, so the style has to
+                // stay usable as the app's own theme.
+                '<item name="android:windowSplashScreenBackground">'.$color.'</item>',
+                '<item name="android:windowBackground">'.$color.'</item>',
+            ];
 
-            $content = str_replace('</resources>', <<<XML
-                    <!-- enhanced-splash:begin -->
-                    {$style}
-                    <!-- enhanced-splash:end -->
+            // Icon mode is handed back to the app theme by installSplashScreen();
+            // image mode has to be the app theme, so it inherits it instead.
+            $parent = $icon ? 'Theme.SplashScreen' : 'Theme.AndroidPHP';
+            $body = implode("\n        ", $items);
+
+            $path = $this->themePath($directory);
+            File::ensureDirectoryExists(dirname($path));
+            File::put($path, <<<XML
+                <?xml version="1.0" encoding="utf-8"?>
+                <resources>
+                    <style name="Theme.AndroidPHP.Splash" parent="{$parent}">
+                        {$body}
+                    </style>
                 </resources>
-                XML, $content);
 
-            File::put($path, $content);
-
-            $written = $written || $directory === 'values';
+                XML);
         }
+    }
 
-        return $written;
+    private function removeThemes(): void
+    {
+        foreach (['values', 'values-night'] as $directory) {
+            if (File::exists($this->themePath($directory))) {
+                File::delete($this->themePath($directory));
+            }
+        }
+    }
+
+    private function themePath(string $directory): string
+    {
+        return $this->buildPath()."/app/src/main/res/{$directory}/enhanced_splash.xml";
     }
 
     /**
@@ -225,22 +229,67 @@ class PrepareSplashCommand extends NativePluginHookCommand
      */
     private function patchManifest(bool $icon): void
     {
-        $path = $this->buildPath().'/app/src/main/AndroidManifest.xml';
+        $content = $this->restoredManifest();
 
-        if (! File::exists($path)) {
+        if ($content === null) {
             return;
         }
 
-        // Undo both scopes first, so the manifest starts as core's own however
-        // the last build left it.
-        $content = str_replace(self::ACTIVITY.self::ACTIVITY_THEME, self::ACTIVITY, File::get($path));
-        $content = str_replace(self::SPLASH_THEME, self::APP_THEME, $content);
-
-        $content = $icon
+        File::put($this->manifestPath(), $icon
             ? str_replace(self::ACTIVITY, self::ACTIVITY.self::ACTIVITY_THEME, $content)
-            : str_replace(self::APP_THEME, self::SPLASH_THEME, $content);
+            : $this->themeApplication($content, self::APP_THEME, self::SPLASH_THEME));
+    }
 
-        File::put($path, $content);
+    private function unpatchManifest(): void
+    {
+        $content = $this->restoredManifest();
+
+        if ($content === null) {
+            return;
+        }
+
+        File::put($this->manifestPath(), $content);
+    }
+
+    /**
+     * Core's own manifest, whichever scope the last build themed.
+     *
+     * @return string|null Null when there is no manifest to read.
+     */
+    private function restoredManifest(): ?string
+    {
+        if (! File::exists($this->manifestPath())) {
+            return null;
+        }
+
+        $content = str_replace(
+            self::ACTIVITY.self::ACTIVITY_THEME,
+            self::ACTIVITY,
+            File::get($this->manifestPath())
+        );
+
+        return $this->themeApplication($content, self::SPLASH_THEME, self::APP_THEME);
+    }
+
+    /**
+     * Rewrite the theme on the application's own opening tag and nowhere else.
+     * Core themes nothing but the application today, so an exact-string swap
+     * would work — and would follow the theme onto any element that later
+     * carries it, including one another plugin injected.
+     */
+    private function themeApplication(string $content, string $from, string $to): string
+    {
+        return preg_replace_callback(
+            '/<application\b[^>]*>/',
+            fn (array $match): string => str_replace($from, $to, $match[0]),
+            $content,
+            1
+        );
+    }
+
+    private function manifestPath(): string
+    {
+        return $this->buildPath().'/app/src/main/AndroidManifest.xml';
     }
 
     /**
@@ -353,7 +402,7 @@ class PrepareSplashCommand extends NativePluginHookCommand
             return true;
         }
 
-        $source = base_path('vendor/nativephp/mobile/resources/xcode/NativePHP/'.$name);
+        $source = $this->corePath($name);
 
         if (! File::exists($source)) {
             return false;
@@ -362,6 +411,15 @@ class PrepareSplashCommand extends NativePluginHookCommand
         File::copy($source, $target);
 
         return true;
+    }
+
+    /**
+     * A file in the core package's own iOS template tree, which is where the
+     * native project is installed from.
+     */
+    private function corePath(string $name): string
+    {
+        return base_path('vendor/nativephp/mobile/resources/xcode/NativePHP/'.$name);
     }
 
     private function writeLaunchIcon(string $icon): void
@@ -671,13 +729,6 @@ class PrepareSplashCommand extends NativePluginHookCommand
 
         File::ensureDirectoryExists($imageset);
 
-        // Refresh the stash from what core wrote for this build; one taken on an
-        // earlier build would restore a splash the app has since replaced. Skip
-        // only when the set is still our own output, which is not core's to keep.
-        if (! $this->ownsLaunchImage()) {
-            $this->stash('LaunchImage.imageset', $imageset);
-        }
-
         $images = [['idiom' => 'universal', 'filename' => 'splash.svg']];
         File::copy(public_path('splash.svg'), $imageset.'/splash.svg');
 
@@ -708,20 +759,32 @@ class PrepareSplashCommand extends NativePluginHookCommand
     }
 
     /**
-     * Only a set we still own needs putting back; core rewrites its own every
-     * build, so anything else in place is newer than the stash and wins.
+     * Only a set we still own needs putting back, and the core package is the
+     * authority on what to put there: it installs a default set, which is
+     * exactly what an app with no splash artwork of its own is meant to have.
+     * An app that does have artwork gets its set rewritten from that artwork
+     * before this hook runs, so there is nothing of ours left to replace.
      */
     private function restoreBitmapLaunchImage(): void
     {
-        $this->ownsLaunchImage()
-            ? $this->restore('LaunchImage.imageset', $this->launchImagePath())
-            : $this->discardStash('LaunchImage.imageset');
+        if (! $this->ownsLaunchImage()) {
+            // Core lists only what it wrote, but leaves files it did not, so
+            // the vector can outlive the set that named it.
+            foreach (File::glob($this->launchImagePath().'/*.svg') ?: [] as $vector) {
+                File::delete($vector);
+            }
 
-        foreach (File::glob($this->launchImagePath().'/*.svg') ?: [] as $vector) {
-            File::delete($vector);
+            return;
         }
 
-        $this->pruneStash();
+        $source = $this->corePath('Assets.xcassets/LaunchImage.imageset');
+
+        if (! File::isDirectory($source)) {
+            return;
+        }
+
+        File::deleteDirectory($this->launchImagePath());
+        File::copyDirectory($source, $this->launchImagePath());
     }
 
     /**
@@ -754,78 +817,6 @@ class PrepareSplashCommand extends NativePluginHookCommand
         libxml_use_internal_errors($previous);
 
         return $document !== false && strtolower($document->getName()) === 'svg';
-    }
-
-    // =========================================================================
-    // Stash
-    // =========================================================================
-
-    /**
-     * Preserve core's version of a file or directory, replacing any earlier
-     * copy. Callers decide what is core's, so the stash never holds our own
-     * output — and never holds a build older than the one being replaced.
-     */
-    private function stash(string $name, string $source): void
-    {
-        if (! File::exists($source)) {
-            return;
-        }
-
-        $stash = $this->stashPath($name);
-
-        $this->discardStash($name);
-        File::ensureDirectoryExists(dirname($stash));
-
-        File::isDirectory($source)
-            ? File::copyDirectory($source, $stash)
-            : File::copy($source, $stash);
-    }
-
-    private function discardStash(string $name): void
-    {
-        $stash = $this->stashPath($name);
-
-        if (! File::exists($stash)) {
-            return;
-        }
-
-        File::isDirectory($stash)
-            ? File::deleteDirectory($stash)
-            : File::delete($stash);
-    }
-
-    private function restore(string $name, string $target): void
-    {
-        $stash = $this->stashPath($name);
-
-        if (! File::exists($stash)) {
-            return;
-        }
-
-        if (File::isDirectory($stash)) {
-            File::deleteDirectory($target);
-            File::copyDirectory($stash, $target);
-            File::deleteDirectory($stash);
-
-            return;
-        }
-
-        File::copy($stash, $target);
-        File::delete($stash);
-    }
-
-    private function pruneStash(): void
-    {
-        $root = $this->buildPath().'/.enhanced-splash';
-
-        if (File::isDirectory($root) && empty(File::glob($root.'/*'))) {
-            File::deleteDirectory($root);
-        }
-    }
-
-    private function stashPath(string $name): string
-    {
-        return $this->buildPath().'/.enhanced-splash/'.$name;
     }
 
     // =========================================================================
