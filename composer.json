@@ -1,0 +1,42 @@
+{
+    "name": "unloc/nativephp-enhanced-splash",
+    "description": "Jump-free Android system splash and vector splash support on iOS",
+    "type": "nativephp-plugin",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "David Beentjes",
+            "email": "info@unloc.nl"
+        }
+    ],
+    "require": {
+        "php": "^8.2",
+        "nativephp/mobile": "^4.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Unloc\\NativephpEnhancedSplash\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Unloc\\NativephpEnhancedSplash\\NativephpEnhancedSplashServiceProvider"
+            ]
+        },
+        "nativephp": {
+            "manifest": "nativephp.json"
+        }
+    },
+    "require-dev": {
+        "pestphp/pest": "^5.0"
+    },
+    "scripts": {
+        "test": "pest"
+    },
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    }
+}

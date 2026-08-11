@@ -1,0 +1,42 @@
+{
+    "name": "unloc/nativephp-enhanced-splash",
+    "version": "1.0.0",
+    "description": "Jump-free Android system splash and vector splash support on iOS",
+    "namespace": "NativephpEnhancedSplash",
+    "keywords": ["splash", "launch screen", "svg"],
+    "category": "utilities",
+    "license": "MIT",
+    "pricing": {
+        "type": "free"
+    },
+    "author": {
+        "name": "David Beentjes",
+        "email": "info@unloc.nl",
+        "url": "https://unloc.nl"
+    },
+    "homepage": "",
+    "repository": "",
+    "funding": [],
+    "platforms": [
+        "android",
+        "ios"
+    ],
+    "screenshots": [],
+    "bridge_functions": [],
+    "android": {
+        "min_version": 26,
+        "dependencies": {
+            "implementation": [
+                "androidx.core:core-splashscreen:1.0.1"
+            ]
+        }
+    },
+    "ios": {
+        "min_version": "15.0"
+    },
+    "secrets": [],
+    "service_provider": "Unloc\\NativephpEnhancedSplash\\NativephpEnhancedSplashServiceProvider",
+    "hooks": {
+        "pre_compile": "nativephp:enhanced-splash:prepare"
+    }
+}
