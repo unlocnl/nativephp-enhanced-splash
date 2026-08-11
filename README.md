@@ -90,6 +90,8 @@ One thing to know: this color is also the app window's background afterwards, so
 
 ## iOS modes
 
+<img align="right" width="160" alt="splash-ios-icon" src="https://github.com/user-attachments/assets/457b19d3-441f-43e7-ad01-2f3e45429dd7" />
+
 ### `icon`: a launch screen without a designer
 
 Set `ios.mode = 'icon'` and the plugin builds the launch screen from `AppIcon.appiconset`: your icon, masked to the iOS squircle so it matches the home screen, centered on `background` /
