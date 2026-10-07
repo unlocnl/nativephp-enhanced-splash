@@ -166,6 +166,14 @@ describe('icon mode', function () {
             ->toContain('<item name="windowSplashScreenBackground">#FF0F172A</item>')
             ->toContain('<item name="postSplashScreenTheme">@style/Theme.AndroidPHP</item>');
     });
+
+    it('draws the icon whatever launched the app', function () {
+        prepareAndroid($this->project, $this->iconMode);
+
+        expect(splashTheme($this->project))
+            ->toContain('<resources xmlns:tools="http://schemas.android.com/tools">')
+            ->toContain('<item name="android:windowSplashScreenBehavior" tools:targetApi="33">icon_preferred</item>');
+    });
 });
 
 /**

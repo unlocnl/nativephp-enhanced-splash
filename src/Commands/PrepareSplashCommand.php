@@ -177,6 +177,7 @@ class PrepareSplashCommand extends NativePluginHookCommand
                 '<item name="windowSplashScreenBackground">'.$color.'</item>',
                 '<item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>',
                 '<item name="postSplashScreenTheme">@style/Theme.AndroidPHP</item>',
+                '<item name="android:windowSplashScreenBehavior" tools:targetApi="33">icon_preferred</item>',
             ] : [
                 // The platform attributes, not androidx's compat ones: nothing
                 // calls installSplashScreen() in this mode, so the style has to
@@ -194,7 +195,7 @@ class PrepareSplashCommand extends NativePluginHookCommand
             File::ensureDirectoryExists(dirname($path));
             File::put($path, <<<XML
                 <?xml version="1.0" encoding="utf-8"?>
-                <resources>
+                <resources xmlns:tools="http://schemas.android.com/tools">
                     <style name="Theme.AndroidPHP.Splash" parent="{$parent}">
                         {$body}
                     </style>
