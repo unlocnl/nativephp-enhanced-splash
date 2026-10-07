@@ -333,8 +333,6 @@ class PrepareSplashCommand extends NativePluginHookCommand
     protected function prepareIos(): void
     {
         if (config('enhanced-splash.ios.mode') === 'icon') {
-            // The launch screen draws the app icon, not the LaunchImage.
-            $this->restoreBitmapLaunchImage();
             $this->applyIconLaunchScreen();
 
             return;
@@ -721,9 +719,9 @@ class PrepareSplashCommand extends NativePluginHookCommand
     {
         $imageset = $this->launchImagePath();
 
+        // Core emits the set whole every build before this hook, so there is
+        // nothing to hand back.
         if (! $this->isValidSvg(public_path('splash.svg'))) {
-            $this->restoreBitmapLaunchImage();
-
             return;
         }
 
@@ -756,48 +754,6 @@ class PrepareSplashCommand extends NativePluginHookCommand
         ]));
 
         $this->components->twoColumnDetail('<fg=blue>Vector launch image</>', 'splash.svg');
-    }
-
-    /**
-     * Only a set we still own needs putting back, and the core package is the
-     * authority on what to put there: it installs a default set, which is
-     * exactly what an app with no splash artwork of its own is meant to have.
-     * An app that does have artwork gets its set rewritten from that artwork
-     * before this hook runs, so there is nothing of ours left to replace.
-     */
-    private function restoreBitmapLaunchImage(): void
-    {
-        if (! $this->ownsLaunchImage()) {
-            // Core lists only what it wrote, but leaves files it did not, so
-            // the vector can outlive the set that named it.
-            foreach (File::glob($this->launchImagePath().'/*.svg') ?: [] as $vector) {
-                File::delete($vector);
-            }
-
-            return;
-        }
-
-        $source = $this->corePath('Assets.xcassets/LaunchImage.imageset');
-
-        if (! File::isDirectory($source)) {
-            return;
-        }
-
-        File::deleteDirectory($this->launchImagePath());
-        File::copyDirectory($source, $this->launchImagePath());
-    }
-
-    /**
-     * Core rewrites the launch image set every build but leaves any file it did
-     * not write itself, so the presence of our vector proves nothing. Its
-     * Contents.json is the honest owner: core names bitmaps there, we name the
-     * vector, and whoever wrote it last is who the set belongs to.
-     */
-    private function ownsLaunchImage(): bool
-    {
-        $contents = $this->launchImagePath().'/Contents.json';
-
-        return File::exists($contents) && str_contains(File::get($contents), 'splash.svg');
     }
 
     private function isValidSvg(string $path): bool

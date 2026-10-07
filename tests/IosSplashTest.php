@@ -172,19 +172,9 @@ describe('losing the app icon', function () {
     });
 });
 
-/**
- * Vector mode substitutes an SVG for the bitmap launch image set core installs,
- * so it has to be able to hand that set back. Core rewrites the set from
- * public/splash*.png on every build, ahead of this hook, and ships a default
- * set for apps with no artwork of their own — between them they are the only
- * two things the set is ever meant to hold, so nothing has to be kept aside.
- */
-describe('handing the launch image back', function () {
+describe('vector launch image', function () {
     beforeEach(function () {
         $this->project = iosProject();
-        $this->vectorMode = ['mode' => 'image'] + $this->iconMode;
-
-        installCoreLaunchImageTemplate($this->project);
 
         file_put_contents($this->project.'/public/splash.svg', '<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>');
     });
@@ -192,69 +182,9 @@ describe('handing the launch image back', function () {
     it('substitutes the vector for what core installed', function () {
         installCoreLaunchImage($this->project, 'first build');
 
-        prepareIos($this->project, $this->vectorMode);
+        prepareIos($this->project, ['mode' => 'image'] + $this->iconMode);
 
         expect(launchImage($this->project, 'Contents.json'))->toContain('splash.svg')
             ->and(assetPath($this->project, 'LaunchImage.imageset').'/splash.png')->not->toBeFile();
-    });
-
-    it('keeps the splash core installed for this build', function () {
-        installCoreLaunchImage($this->project, 'first build');
-        prepareIos($this->project, $this->vectorMode);
-
-        // The app swaps its splash for a bitmap: core rewrites the set, and the
-        // vector this plugin wrote is no longer what the set names.
-        installCoreLaunchImage($this->project, 'second build');
-        unlink($this->project.'/public/splash.svg');
-
-        prepareIos($this->project, $this->vectorMode);
-
-        expect(launchImage($this->project, 'splash.png'))->toBe('second build')
-            ->and(assetPath($this->project, 'LaunchImage.imageset').'/splash.svg')->not->toBeFile();
-    });
-
-    /**
-     * With no artwork of its own the app has no set core would write, so what
-     * it is owed is the one the core package ships.
-     */
-    it('puts the installed default back when core writes nothing', function () {
-        prepareIos($this->project, $this->vectorMode);
-
-        expect(launchImage($this->project, 'Contents.json'))->toContain('splash.svg');
-
-        unlink($this->project.'/public/splash.svg');
-
-        prepareIos($this->project, $this->vectorMode);
-
-        expect(launchImage($this->project, 'splash.png'))->toBe('core default')
-            ->and(launchImage($this->project, 'Contents.json'))->not->toContain('splash.svg')
-            ->and(assetPath($this->project, 'LaunchImage.imageset').'/splash.svg')->not->toBeFile();
-    });
-
-    /**
-     * A core upgrade that changes the default set has to reach the app, which
-     * it only does while the core package is the one place a restore reads.
-     */
-    it('follows the core package rather than a copy of an earlier build', function () {
-        prepareIos($this->project, $this->vectorMode);
-
-        installCoreLaunchImageTemplate($this->project, 'upgraded default');
-        unlink($this->project.'/public/splash.svg');
-
-        prepareIos($this->project, $this->vectorMode);
-
-        expect(launchImage($this->project, 'splash.png'))->toBe('upgraded default')
-            ->and(iosBuildPath($this->project).'/.enhanced-splash')->not->toBeDirectory();
-    });
-
-    it('leaves the set alone when core is not there to restore from', function () {
-        prepareIos($this->project, $this->vectorMode);
-
-        exec('rm -rf '.escapeshellarg($this->project.'/vendor'));
-        unlink($this->project.'/public/splash.svg');
-
-        prepareIos($this->project, $this->vectorMode);
-
-        expect(launchImage($this->project, 'Contents.json'))->toContain('splash.svg');
     });
 });

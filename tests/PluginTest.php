@@ -101,6 +101,6 @@ describe('Composer Configuration', function () {
         expect(json_last_error())->toBe(JSON_ERROR_NONE)
             ->and($composer['type'])->toBe('nativephp-plugin')
             ->and($composer['extra']['nativephp']['manifest'])->toBe('nativephp.json')
-            ->and($composer['require']['nativephp/mobile'])->toBe('^4.0');
+            ->and($composer['require']['nativephp/mobile'])->toBe('^4.4');
     });
 });

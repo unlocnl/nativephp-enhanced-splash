@@ -103,22 +103,6 @@ function installCoreLaunchScreen(string $root): void
     file_put_contents($source.'/SplashView.swift', '// core splash view');
 }
 
-/**
- * Stand in for the default launch image set the core package ships, which is
- * what an app with no splash artwork of its own is installed with.
- */
-function installCoreLaunchImageTemplate(string $root, string $tag = 'core default'): void
-{
-    $source = coreTemplatePath($root).'/Assets.xcassets/LaunchImage.imageset';
-
-    is_dir($source) || mkdir($source, 0777, true);
-    file_put_contents($source.'/splash.png', $tag);
-    file_put_contents($source.'/Contents.json', json_encode([
-        'images' => [['filename' => 'splash.png', 'idiom' => 'universal']],
-        'info' => ['author' => 'xcode', 'version' => 1],
-    ]));
-}
-
 function coreTemplatePath(string $root): string
 {
     return $root.'/vendor/nativephp/mobile/resources/xcode/NativePHP';
