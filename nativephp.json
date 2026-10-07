@@ -1,6 +1,6 @@
 {
     "name": "unloc/nativephp-enhanced-splash",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "description": "Jump-free Android system splash and vector splash support on iOS",
     "namespace": "NativephpEnhancedSplash",
     "keywords": ["splash", "launch screen", "svg"],
